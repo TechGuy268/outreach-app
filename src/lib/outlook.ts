@@ -1,60 +1,14 @@
-import { ConfidentialClientApplication } from "@azure/msal-node";
-import { Client } from "@microsoft/microsoft-graph-client";
+import nodemailer from "nodemailer";
 
-let msalClient: ConfidentialClientApplication | null = null;
-
-function getMsalClient() {
-  if (!msalClient) {
-    const clientId = process.env.OUTLOOK_CLIENT_ID;
-    const clientSecret = process.env.OUTLOOK_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-      throw new Error("Outlook credentials not configured. Set OUTLOOK_CLIENT_ID and OUTLOOK_CLIENT_SECRET in .env");
-    }
-    msalClient = new ConfidentialClientApplication({
-      auth: {
-        clientId,
-        clientSecret,
-        authority: `https://login.microsoftonline.com/${process.env.OUTLOOK_TENANT_ID || "common"}`,
-      },
-    });
-  }
-  return msalClient;
-}
-
-export const OUTLOOK_SCOPES = [
-  "https://graph.microsoft.com/Mail.Send",
-  "https://graph.microsoft.com/Mail.ReadWrite",
-  "https://graph.microsoft.com/User.Read",
-  "offline_access",
-];
-
-export function getAuthUrl(redirectUri: string) {
-  return getMsalClient().getAuthCodeUrl({
-    scopes: OUTLOOK_SCOPES,
-    redirectUri,
-  });
-}
-
-export async function getTokenFromCode(code: string, redirectUri: string) {
-  return getMsalClient().acquireTokenByCode({
-    code,
-    scopes: OUTLOOK_SCOPES,
-    redirectUri,
-  });
-}
-
-export async function refreshAccessToken(refreshToken: string) {
-  return getMsalClient().acquireTokenByRefreshToken({
-    refreshToken,
-    scopes: OUTLOOK_SCOPES,
-  });
-}
-
-function getGraphClient(accessToken: string) {
-  return Client.init({
-    authProvider: (done) => done(null, accessToken),
-  });
-}
+const transporter = nodemailer.createTransport({
+  host: "smtp-mail.outlook.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.OUTLOOK_EMAIL,
+    pass: process.env.OUTLOOK_PASSWORD,
+  },
+});
 
 export interface EmailPayload {
   to: string;
@@ -64,34 +18,29 @@ export interface EmailPayload {
   trackingPixelUrl?: string;
 }
 
-export async function sendEmail(accessToken: string, payload: EmailPayload) {
-  const client = getGraphClient(accessToken);
-
-  let bodyContent = payload.body;
-  if (payload.trackingPixelUrl) {
-    bodyContent += `<img src="${payload.trackingPixelUrl}" width="1" height="1" style="display:none" />`;
+export async function sendEmail(payload: EmailPayload) {
+  const fromEmail = process.env.OUTLOOK_EMAIL;
+  if (!fromEmail || !process.env.OUTLOOK_PASSWORD) {
+    throw new Error("Outlook email credentials not configured. Set OUTLOOK_EMAIL and OUTLOOK_PASSWORD in .env");
   }
 
-  const message = {
-    message: {
-      subject: payload.subject,
-      body: {
-        contentType: payload.isHtml !== false ? "HTML" : "Text",
-        content: bodyContent,
-      },
-      toRecipients: [
-        {
-          emailAddress: { address: payload.to },
-        },
-      ],
-    },
-    saveToSentItems: true,
-  };
+  let htmlBody = payload.body;
+  if (payload.trackingPixelUrl) {
+    htmlBody += `<img src="${payload.trackingPixelUrl}" width="1" height="1" style="display:none" />`;
+  }
 
-  return client.api("/me/sendMail").post(message);
+  const result = await transporter.sendMail({
+    from: fromEmail,
+    to: payload.to,
+    subject: payload.subject,
+    ...(payload.isHtml === false
+      ? { text: payload.body }
+      : { html: htmlBody }),
+  });
+
+  return result;
 }
 
-export async function getUserProfile(accessToken: string) {
-  const client = getGraphClient(accessToken);
-  return client.api("/me").get();
+export async function verifyConnection() {
+  return transporter.verify();
 }

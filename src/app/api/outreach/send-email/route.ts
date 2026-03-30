@@ -20,19 +20,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Get user's Outlook token
-  const dbUser = await prisma.user.findUnique({
-    where: { id: user!.id },
-    select: { outlookAccessToken: true },
-  });
-
-  if (!dbUser?.outlookAccessToken) {
-    return NextResponse.json(
-      { error: "Outlook not connected. Go to Settings to connect." },
-      { status: 400 }
-    );
-  }
-
   // Get lead
   const lead = await prisma.lead.findFirst({
     where: { id: leadId, userId: user!.id },
@@ -64,7 +51,7 @@ export async function POST(req: Request) {
   try {
     const trackingPixelUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/track/open/${log.id}`;
 
-    await sendEmail(dbUser.outlookAccessToken, {
+    await sendEmail({
       to: lead.email,
       subject: renderedSubject,
       body: renderedBody,

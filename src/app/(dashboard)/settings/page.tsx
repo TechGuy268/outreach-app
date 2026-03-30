@@ -32,20 +32,16 @@ export default function SettingsPage() {
 function OutlookSettings() {
   const [loading, setLoading] = useState(false);
 
-  const connectOutlook = async () => {
+  const testConnection = async () => {
     setLoading(true);
-    try {
-      const res = await fetch("/api/settings/outlook/auth-url");
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        toast.error("Failed to get auth URL. Check your Outlook credentials in .env");
-      }
-    } catch {
-      toast.error("Failed to connect to Outlook");
-    }
+    const res = await fetch("/api/settings/outlook/test");
+    const data = await res.json();
     setLoading(false);
+    if (data.success) {
+      toast.success("Outlook connection verified!");
+    } else {
+      toast.error(data.error || "Connection failed. Check your OUTLOOK_EMAIL and OUTLOOK_PASSWORD env vars.");
+    }
   };
 
   return (
@@ -53,16 +49,17 @@ function OutlookSettings() {
       <CardHeader>
         <div className="flex items-center gap-3">
           <Mail className="h-5 w-5 text-blue-500" />
-          <CardTitle>Outlook / Microsoft 365</CardTitle>
+          <CardTitle>Outlook / Hotmail Email</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Connect your Outlook account to send emails via Microsoft Graph API.
-          You need to set up an Azure AD app with Mail.Send permissions.
+          Email sending uses SMTP with your Outlook/Hotmail credentials.
+          Set <code>OUTLOOK_EMAIL</code> and <code>OUTLOOK_PASSWORD</code> in
+          your Vercel environment variables.
         </p>
-        <Button onClick={connectOutlook} disabled={loading}>
-          {loading ? "Connecting..." : "Connect Outlook"}
+        <Button onClick={testConnection} disabled={loading}>
+          {loading ? "Testing..." : "Test Connection"}
         </Button>
       </CardContent>
     </Card>
