@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────
+// Auth & Users
+// ──────────────────────────────────────
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  email          String   @unique
+  hashedPassword String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Outlook integration
+  outlookAccessToken  String?
+  outlookRefreshToken String?
+  outlookTokenExpiry  DateTime?
+
+  // LinkedIn integration
+  linkedinCookie String?
+
+  campaigns   Campaign[]
+  leads       Lead[]
+  templates   Template[]
+  scrapingJobs ScrapingJob[]
+  outreachLogs OutreachLog[]
+}
+
+// ──────────────────────────────────────
+// Leads
+// ──────────────────────────────────────
+
+model Lead {
+  id          String   @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  company     String?
+  jobTitle    String?
+  linkedinUrl String?
+  website     String?
+  location    String?
+  source      String   @default("manual") // manual, google_business, csv, linkedin
+  status      LeadStatus @default(NEW)
+  tags        String[] // stored as array
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  campaignLeads CampaignLead[]
+  outreachLogs  OutreachLog[]
+
+  @@unique([email, userId])
+  @@index([userId])
+  @@index([status])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  REPLIED
+  INTERESTED
+  NOT_INTERESTED
+  CONVERTED
+  BOUNCED
+}
+
+// ──────────────────────────────────────
+// Campaigns
+// ──────────────────────────────────────
+
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+  dailyLimit  Int            @default(50)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  steps         CampaignStep[]
+  campaignLeads CampaignLead[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum CampaignType {
+  EMAIL
+  LINKEDIN
+  MULTI_CHANNEL
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+model CampaignStep {
+  id        String      @id @default(cuid())
+  order     Int
+  channel   ChannelType
+  delayDays Int         @default(0) // days after previous step
+  subject   String?     // for email
+  body      String      // template body with {{variables}}
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  outreachLogs OutreachLog[]
+
+  @@index([campaignId])
+}
+
+enum ChannelType {
+  EMAIL
+  LINKEDIN_CONNECT
+  LINKEDIN_MESSAGE
+}
+
+model CampaignLead {
+  id           String             @id @default(cuid())
+  status       CampaignLeadStatus @default(PENDING)
+  currentStep  Int                @default(0)
+  nextSendAt   DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, leadId])
+  @@index([nextSendAt])
+  @@index([status])
+}
+
+enum CampaignLeadStatus {
+  PENDING
+  IN_PROGRESS
+  REPLIED
+  COMPLETED
+  STOPPED
+  BOUNCED
+}
+
+// ──────────────────────────────────────
+// Templates
+// ──────────────────────────────────────
+
+model Template {
+  id        String      @id @default(cuid())
+  name      String
+  channel   ChannelType
+  subject   String?     // for email
+  body      String
+  variables String[]    // list of variable names used
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ──────────────────────────────────────
+// Outreach Logs
+// ──────────────────────────────────────
+
+model OutreachLog {
+  id        String        @id @default(cuid())
+  channel   ChannelType
+  status    OutreachStatus @default(PENDING)
+  sentAt    DateTime?
+  openedAt  DateTime?
+  clickedAt DateTime?
+  repliedAt DateTime?
+  bouncedAt DateTime?
+  error     String?
+  messageId String?       // external message ID for tracking
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leadId String
+  lead   Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  campaignStepId String?
+  campaignStep   CampaignStep? @relation(fields: [campaignStepId], references: [id])
+
+  @@index([userId])
+  @@index([leadId])
+  @@index([status])
+  @@index([sentAt])
+}
+
+enum OutreachStatus {
+  PENDING
+  SENT
+  OPENED
+  CLICKED
+  REPLIED
+  BOUNCED
+  FAILED
+}
+
+// ──────────────────────────────────────
+// Scraping Jobs
+// ──────────────────────────────────────
+
+model ScrapingJob {
+  id          String       @id @default(cuid())
+  source      String       // google_business, linkedin
+  query       String       // search query
+  location    String?
+  status      ScrapingStatus @default(PENDING)
+  resultsCount Int         @default(0)
+  error       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum ScrapingStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
